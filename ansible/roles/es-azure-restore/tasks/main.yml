@@ -1,4 +1,14 @@
 ---
+- name: Set azure snapshot for the first time
+  uri:
+    url: "http://{{ es_restore_host }}:9200/_snapshot/azurebackup"
+    method: PUT
+    body: "{{ snapshot_create_request_body | to_json }}"
+    headers:
+      Content-Type: "application/json"
+
+- debug:
+    var: snapshot_base_path
 
 - name: Restore ES from Azure backup
   uri:
@@ -14,5 +24,5 @@
     body_format: json
   register: result
   until: result.json.snapshots[0].state == 'SUCCESS'
-  retries: 120
+  retries: 1200
   delay: 10

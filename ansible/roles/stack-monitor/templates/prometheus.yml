@@ -2,17 +2,31 @@ global:
   scrape_interval: 1m
   scrape_timeout: 10s
   evaluation_interval: 1m
+  {% if cluster_name and cluster_name | length  %}
+  # Clustername is defined for multi swarm cluster
+  # can name first cluster as DS1 and 2nd as DS2 ... DSn
+  # all metrics will have label as cluster: < value >
+  # This value won't be accessible from GUI but for external tools like
+  # federation or alertmanager
+  external_labels:
+    cluster: {{cluster_name}}
+  {% endif %}
 
 rule_files:
-  - '/etc/prometheus-rules/alertrules.nodes'
-  - '/etc/prometheus-rules/alertrules.task'
-  - '/etc/prometheus-rules/alertrules.es'
-  - '/etc/prometheus-rules/alertrules.logs'
-  - '/etc/prometheus-rules/alertrules.backups'
-  - '/etc/prometheus-rules/alertrules.postgresql'
-  - '/etc/prometheus-rules/alertrules.kong'
-  - '/etc/prometheus-rules/alertrules.services'
-  - '/etc/prometheus-rules/alertrules.docker'
+  - '/etc/prometheus-rules/alertrules.nodes.yml'
+  - '/etc/prometheus-rules/alertrules.process.yml'
+  - '/etc/prometheus-rules/alertrules.task.yml'
+  - '/etc/prometheus-rules/alertrules.kong.yml'
+  - '/etc/prometheus-rules/alertrules.docker.yml'
+
+alerting:
+  alertmanagers:
+  - static_configs:
+    - targets: [ '{{groups['alertmanager']|join(':9093\', \'')}}:9093','{{groups['alertmanager_stateful']|join(':19093\', \'')}}:19093' ]
+  {% if prometheus_alertmanager_route_prefix and prometheus_alertmanager_route_prefix | length  %}
+  # this empty line will make sure the indentation is proper
+    path_prefix: {{ prometheus_alertmanager_route_prefix }}
+  {% endif %}
 
 scrape_configs:
   - job_name: 'cadvisor'
@@ -25,13 +39,9 @@ scrape_configs:
       - source_labels: [name]
         regex: '^\s*$'
         action: drop
-
-  - job_name: 'node-exporter'
-    dns_sd_configs:
-    - names:
-      - 'tasks.monitor_node-exporter'
-      type: 'A'
-      port: 9100
+  - job_name: 'vm-node-exporter'
+    static_configs:
+      - targets: ["{{ groups['swarm-nodes'] | difference(["localhost"]) | map('regex_replace', '^(.*)$', '\\1:9100') | list | join("\", \"") }}"]
 
   - job_name: 'alertmanager'
     metrics_path: /alertmanager/metrics
@@ -45,31 +55,22 @@ scrape_configs:
   # This empty line ensures indentation is correct after ansible jinja2 template is materialized
   - job_name: 'docker'
     static_configs:
-      - targets: {{ groups['swarm-manager'] | map('regex_replace', '^(.*)$', '\\1:' + docker_metrics_port ) | list | to_yaml }}
+      - targets: ["{{ groups['swarm-manager'] | map('regex_replace', '^(.*)$', '\\1:' + docker_metrics_port ) | list | join("\", \"") }}"]
     metric_relabel_configs:
       - source_labels: [__name__]
         regex: 'grpc_.*'
         action: drop
   {% endif %}
 
-  - job_name: 'elasticsearch-exporter'
-    static_configs:
-      - targets: ['monitor_elasticsearch_exporter:9108']
-
-  - job_name: 'log-elasticsearch-exporter'
-    static_configs:
-      - targets: ['monitor_log_elasticsearch_exporter:9108']
-
-  - job_name: 'master-postgres-exporter'
-    static_configs:
-      - targets: ['monitor_master_postgres_exporter:9187']
-
-  {% if groups['postgresql-slave'][0] is defined %}
-  # This empty line ensures indentation is correct after ansible jinja2 template is materialized
-  - job_name: 'slave-postgres-exporter'
-    static_configs:
-      - targets: ['monitor_slave_postgres_exporter:9187']
-  {% endif %}
+  - job_name: 'nginx'
+    metrics_path: /metrics
+    scrape_interval: 10s
+    scrape_timeout: 5s
+    dns_sd_configs:
+    - names:
+      - 'tasks.proxy_proxy'
+      type: 'A'
+      port: 9145
 
   - job_name: 'statsd-exporter'
     static_configs:
@@ -79,31 +80,14 @@ scrape_configs:
     static_configs:
       - targets: ['monitor_kong_cluster_exporter:9158']
 
-  - job_name: 'elasticsearch-snapshots-exporter'
-    static_configs:
-      - targets: ['monitor_elasticsearch_snapshots_exporter:9158']
-
   - job_name: 'docker-service-replicas-exporter'
     static_configs:
       - targets: ['{{ groups['swarm-bootstrap-manager'][0] }}:9258']
-
-  - job_name: 'data-backup-azure-blob-exporter'
-    static_configs:
-      - targets: ['monitor_data_backup_azure_blob_exporter:9358']
 
   - job_name: 'prometheus'
     metrics_path: /prometheus/metrics
     static_configs:
       - targets: ['localhost:9090']
-
-  - job_name: 'cassandra-exporter'
-    metrics_path: /metrics
-    static_configs:
-      - targets: ['monitor_cassandra_jmx_exporter:5556']
-
-  - job_name: 'vm-node-exporter'
-    static_configs:
-      - targets: {{ groups['node-exporter'] | difference(["localhost"]) | map('regex_replace', '^(.*)$', '\\1:9101' ) | list | to_yaml }}
 
   {% for item in service_blackbox_checks %}
   # This empty line ensures indentation is correct after ansible jinja2 template is materialized
@@ -123,23 +107,3 @@ scrape_configs:
       - target_label: __address__
         replacement: monitor_blackbox-exporter:9115
   {% endfor %}
-
-  {% if static_site_url is defined %}
-  # This empty line ensures indentation is correct after ansible jinja2 template is materialized
-  - job_name: 'availability_sunbird_static_site'
-    metrics_path: /probe
-    params:
-      module: [http_2xx]  # Look for a HTTP 200 response.
-    static_configs:
-    - targets:
-      - {{ static_site_url }}
-      labels:
-        "service_name": "sunbird_static_site"
-    relabel_configs:
-      - source_labels: [__address__]
-        target_label: __param_target
-      - source_labels: [__param_target]
-        target_label: instance
-      - target_label: __address__
-        replacement: monitor_blackbox-exporter:9115
-  {% endif %}

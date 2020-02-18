@@ -2,14 +2,13 @@ version: '3'
 
 services:
   kong:
-    image: sunbird/kong:0.9.9
+    image: "{{hub_org}}/{{image_name}}:{{image_tag}}"
     env_file:
       /home/deployer/env/api-manager.env
     ports:
       - 8000:8000
       - 8001:8001
     networks:
-      - api-manager_default
       - application_default
     deploy:
       replicas: {{ kong_replicas }}
@@ -18,19 +17,15 @@ services:
           memory: "{{ kong_reservation_memory }}"
         limits:
           memory: "{{ kong_limit_memory }}"
+          cpus: "{{ kong_limit_cpu | default('1') }}"
       update_config:
         parallelism: 1
         delay: 30s
-    healthcheck:
-      test: curl -f http://localhost:8001/status || exit 1
-      interval: 10s
-      timeout: 5s
-      retries: 10
 
   echo:
-    image: "{{hub_org}}/{{echo_server_image_name}}:{{echo_server_image_tag}}"
+    image: "sunbird/echo-server:1.5.0-bronze"
     networks:
-      - api-manager_default
+      - application_default
     ports:
       - 9595:9595
     deploy:
@@ -50,7 +45,5 @@ services:
       retries: 3
 
 networks:
-  api-manager_default:
-    external: true
   application_default:
     external: true

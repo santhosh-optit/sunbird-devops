@@ -32,8 +32,11 @@
   tags: update_es_config
   notify: Restart elasticsearch
 
+- name: Start ES service
+  service: name=elasticsearch state=started
+
 - name: Set elasticsearch service to start on boot
-  service: name=elasticsearch enabled=yes
+  service: name=elasticsearch state=started
 
 - name: Remove plugins
   command: bin/plugin remove {{item.name}}
@@ -42,6 +45,9 @@
   with_items: "{{ es_plugins }}"
   ignore_errors: yes
   notify: Restart elasticsearch
+
+- name: Install azure plugin for elasticsearch
+  shell: ES_PATH_CONF=/etc/elasticsearch /usr/share/elasticsearch/bin/plugin install cloud-azure
 
 - name: Install plugins
   command: bin/plugin install {{item.name}} {%if item.url is defined %} url {{item.url}}{% endif %}
@@ -65,5 +71,5 @@
   notify: Restart elasticsearch
 
 - name: Start Elasticsearch
-  service: name=elasticsearch state=started enabled=yes
+  service: name=elasticsearch state=started 
   become: yes

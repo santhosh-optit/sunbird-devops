@@ -1,4 +1,9 @@
 ---
+- name: Login to docker
+  shell: "docker login {{ vault_docker_registry_url }} -u {{ vault_docker_registry_user }} -p {{ vault_docker_registry_password }}"
+  no_log: True
+  ignore_errors: yes
+
 - name: Ensure env directory exists
   file:
     path: /home/deployer/env
@@ -13,17 +18,28 @@
     owner: root
     group: root
 
-# - name: Save actor configurations into an env file
-#   template: src=sunbird_actor.env dest=/home/deployer/env/sunbird_actor.env mode=0644
+- name: Ensure config directory exists
+  file:
+    path: /home/deployer/config
+    state: directory
+    owner: root
+    group: root
 
-# - name: Save content configurations into an env file
-#   template: src=sunbird_content.env dest=/home/deployer/env/sunbird_content.env mode=0644
+- name: debugging
+  debug:
+    msg: "sunbird_{{service_name}}.env"
 
-# - name: Save learner configurations into an env file
-#   template: src=sunbird_learner.env dest=/home/deployer/env/sunbird_learner.env mode=0644
+- name: Remove env file
+  file: path=/home/deployer/env/sunbird_{{service_name}}.env state=absent
 
-# - name: Save player configurations into an env file
-#   template: src=sunbird_player.env dest=/home/deployer/env/sunbird_player.env mode=0644
+- name: check if env file exists
+  stat: path={{role_path}}/templates/sunbird_{{service_name}}.env
+  register: out
+  delegate_to: "localhost"
+
+- debug: var=out
 
 - name: Save service configurations into an env file
   template: src="sunbird_{{service_name}}.env" dest="/home/deployer/env/sunbird_{{service_name}}.env" mode=0644
+  when: out.stat.exists
+  

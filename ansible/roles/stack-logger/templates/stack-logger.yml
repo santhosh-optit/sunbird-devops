@@ -1,19 +1,29 @@
 version: '3.3'
 
 services:
-  kibana:
-    image: kibana:4.6
+  logstash:
+{% if groups['log-es-2'] is defined %}
+    image: sunbird/logstash:6.2.3
+    command: /usr/share/logstash/bin/logstash -f /etc/logstash/conf.d/logstash.conf
+    deploy:
+      replicas: {{ logger_logstash_replicas }}
+      resources:
+        reservations:
+          memory: "{{ logger_logstash_reservation_memory }}"
+        limits:
+          memory: "{{ logger_logstash_limit_memory }}"
     environment:
       - LOGSPOUT=ignore
-    ports:
-      - '5601:5601'
+      - LS_HEAP_SIZE={{ logger_logstash_heap_size }}
     configs:
-      - source: kibana.yml
-        target: /opt/kibana/config/kibana.yml
+      - source: logstash.conf
+        target: /etc/logstash/conf.d/logstash.conf
+    ports:
+      - '51415:51415'
+      - '5044:5044'
     networks:
-      - logger
-
-  logstash:
+      - application_default  
+{% else %}
     image: sunbird/logstash:2.4.1
     command: logstash -f /conf/logstash.conf
     deploy:
@@ -33,51 +43,33 @@ services:
       - '51415:51415'
       - '5044:5044'
     networks:
-      - logger
+      - application_default  
+{% endif %}      
 
   logspout:
-    image: gliderlabs/logspout:v3.2.3
+    image: gliderlabs/logspout:v3.2.6
     command: syslog+tcp://logger_logstash:51415
     deploy:
       mode: global
+      resources:
+        reservations:
+          memory: "{{ logger_logspout_reservation_memory }}"
+        limits:
+          memory: "{{ logger_logspout_limit_memory }}"
     environment:
       - SYSLOG_FORMAT=rfc3164
+      - INACTIVITY_TIMEOUT=1m
     volumes:
       - '/var/run/docker.sock:/tmp/docker.sock'
+      - '/home/deployer/cluster_name:/etc/host_hostname'
     networks:
-      - logger
-
-  oauth:
-    image: mryu/oauth2-proxy:2.1
-    command: |
-      -cookie-secure=false
-      -upstream=http://kibana:5601/
-      -redirect-url={{kibana_oauth_redirect_url}}
-      -http-address=0.0.0.0:4111
-      {% for email_domain in kibana_oauth_authenticated_email_domains %}
-      -email-domain={{email_domain}}
-      {% endfor %}
-      -authenticated-emails-file=/authenticated_email.txt
-    environment:
-      - OAUTH2_PROXY_CLIENT_ID={{google_client_id}}
-      - OAUTH2_PROXY_CLIENT_SECRET={{google_client_secret}}
-      - OAUTH2_PROXY_COOKIE_SECRET={{cookie_secret}}
-    ports:
-      - "4111:4111"
-    configs:
-      - source: authenticated_email_kibana_oauth
-        target: /authenticated_email.txt
-    networks:
-      - logger
+      - application_default
 
 configs:
-  authenticated_email_kibana_oauth:
-    external: true
-  kibana.yml:
-    external: true
   logstash.conf:
     external: true
 
 networks:
-  logger:
+  application_default:
     external: true
+

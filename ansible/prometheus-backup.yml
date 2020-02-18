@@ -1,27 +1,48 @@
-- hosts: swarm-bootstrap-manager
-  become: yes
-  vars_files:
-    - ['{{inventory_dir}}/secrets.yml', 'secrets/{{env}}.yml']
-  tasks:
-    # This brings down all monitoring when play book fails. Need to figure out better way
-    # - name: ensure monit is stopped before stopping prometheus
-    #   service: name=monit state=stopped
-    - name: ensure prometheus is stopped before backup
-      shell: "docker service scale monitor_prometheus=0"
-
 - hosts: swarm-agent-for-prometheus
   become: yes
+  vars:
+    prometheus_data_dir: "{{prometheus_mount_point}}"
+    prometheus_backup_prefix: "prometheus_swarm_{{cluster_name|d('swarm_1')}}"
+    prometheus_url: "http://localhost:9090/prometheus"
   vars_files:
-    - ['{{inventory_dir}}/secrets.yml', 'secrets/{{env}}.yml']
+    - ['{{ inventory_dir }}/secrets.yml']
+  environment:
+    AZURE_STORAGE_ACCOUNT: "{{ backup_azure_storage_account_name }}"
+    AZURE_STORAGE_KEY: "{{ backup_azure_storage_access_key }}"
   roles:
+    - prometheus-backup-v2
+  tags:
     - prometheus-backup
 
-- hosts: swarm-bootstrap-manager
+- hosts: swarm-agent-for-prometheus-stateful
   become: yes
+  vars:
+    prometheus_data_dir: "{{prometheus_fed_mount_point}}"
+    prometheus_backup_prefix: 'prometheus_fed'
+    prometheus_url: "http://localhost:29090/prometheus"
   vars_files:
-    - ['{{inventory_dir}}/secrets.yml', 'secrets/{{env}}.yml']
-  tasks:
-    - name: ensure prometheus is started after backup
-      shell: "docker service scale monitor_prometheus=1"
-    - name: ensure monit is started after starting prometheus
-      service: name=monit state=started
+    - ['{{inventory_dir}}/secrets.yml']
+  environment:
+    AZURE_STORAGE_ACCOUNT: "{{ backup_azure_storage_account_name }}"
+    AZURE_STORAGE_KEY: "{{ backup_azure_storage_access_key }}"
+  roles:
+    - prometheus-backup-v2
+  tags:
+    - federation-prometheus-backup
+
+
+- hosts: swarm-agent-for-prometheus-stateful
+  become: yes
+  vars:
+    prometheus_data_dir: "{{prometheus_stateful_mount_point}}"
+    prometheus_backup_prefix: 'prometheus_stateful'
+    prometheus_url: "http://localhost:19090/prometheus"
+  vars_files:
+    - ['{{inventory_dir}}/secrets.yml']
+  environment:
+    AZURE_STORAGE_ACCOUNT: "{{ backup_azure_storage_account_name }}"
+    AZURE_STORAGE_KEY: "{{ backup_azure_storage_access_key }}"
+  roles:
+    - prometheus-backup-v2
+  tags:
+    - stateful-prometheus-backup
